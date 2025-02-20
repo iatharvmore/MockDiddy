@@ -1,15 +1,16 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import Webcam from 'react-webcam';
 import Editor from '@monaco-editor/react';
 import OpenAI from 'openai';
 import { MicrophoneIcon, StopIcon, ClockIcon, SpeakerWaveIcon, XCircleIcon } from '@heroicons/react/24/solid';
 import Header from './Header';
-import { getFirestore, doc, updateDoc, increment } from 'firebase/firestore';
+import { getFirestore, doc, updateDoc, increment, addDoc, collection } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 
 function Interview({ genAI }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const [currentQuestion, setCurrentQuestion] = useState('');
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [isRecording, setIsRecording] = useState(false);
@@ -23,6 +24,9 @@ function Interview({ genAI }) {
   const [error, setError] = useState('');
   const [elapsedTime, setElapsedTime] = useState(0);
   const [isInterviewActive, setIsInterviewActive] = useState(true);
+  const [isMuted, setIsMuted] = useState(false);
+  const [showSummary, setShowSummary] = useState(false);
+  const [interviewResults, setInterviewResults] = useState([]);
   
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
@@ -31,12 +35,13 @@ function Interview({ genAI }) {
   const openaiRef = useRef(null);
   const db = getFirestore();
   const auth = getAuth();
+  const recognitionRef = useRef(null);
 
   // Initialize OpenAI for Whisper
   useEffect(() => {
     const apiKey = process.env.REACT_APP_OPENAI_API_KEY;
     if (!apiKey) {
-      setError('OpenAI API key is missing. Voice recording feature will be disabled.');
+      console.error('OpenAI API key is missing. Voice recording feature will be disabled.');
       return;
     }
 
@@ -46,65 +51,123 @@ function Interview({ genAI }) {
         dangerouslyAllowBrowser: true
       });
     } catch (err) {
-      setError('Failed to initialize OpenAI client. Voice recording feature will be disabled.');
-      console.error('OpenAI initialization error:', err);
+      console.error('Failed to initialize OpenAI client. Voice recording feature will be disabled.', err);
     }
   }, []);
 
+  // Generate the first question on component mount
+  useEffect(() => {
+    generateQuestion();
+  }, []); // Empty dependency array means this runs once on mount
+
+  const handleSubmitInterview = async () => {
+    // Generate feedback for each question
+    const updatedQuestions = allResponses.map(q => ({
+        ...q,
+        feedback: `Feedback for: ${q.question}` // Replace with actual feedback logic
+    }));
+
+    // Save interview results to Firestore
+    await addDoc(collection(db, 'interviews'), {
+        questions: updatedQuestions,
+        timestamp: new Date(),
+    });
+
+    // Show summary instead of redirecting immediately
+    setInterviewResults(updatedQuestions);
+    setShowSummary(true);
+  };
+
   const handleAnswerSubmit = useCallback(async () => {
-    setIsTimerRunning(false);
     try {
-      const model = genAI.getGenerativeModel({ model: "gemini-pro" });
-      const prompt = `Evaluate this answer for a ${getQuestionType(currentQuestionIndex)} question:
-        Question: ${currentQuestion}
-        Answer: ${getQuestionType(currentQuestionIndex) === 'coding' ? code : answer}
-        Provide brief, constructive feedback focusing on key points.`;
+        // Save the answer to the current question
+        const updatedResponses = [...allResponses];
+        updatedResponses[currentQuestionIndex] = {
+            question: currentQuestion, // Save the current question
+            answer: answer
+        };
+        setAllResponses(updatedResponses);
 
-      const result = await model.generateContent(prompt);
-      const response = await result.response;
-      const newFeedback = response.text().trim();
-      setFeedback(newFeedback);
-
-      const newResponse = {
-        question: currentQuestion,
-        answer: getQuestionType(currentQuestionIndex) === 'coding' ? code : answer,
-        feedback: newFeedback,
-        type: getQuestionType(currentQuestionIndex)
-      };
-
-      const updatedResponses = [...allResponses, newResponse];
-      setAllResponses(updatedResponses);
-
-      if (currentQuestionIndex === 9) {
-        // Deduct one credit when interview is completed
-        const userRef = doc(db, 'users', auth.currentUser.uid);
-        await updateDoc(userRef, {
-          credits: increment(-1)
-        });
-
-        localStorage.setItem('interviewResults', JSON.stringify(updatedResponses));
-        navigate('/report');
-      } else {
-        setCurrentQuestionIndex(prev => prev + 1);
-        setAnswer('');
-        setCode('');
-        setFeedback('');
-      }
+        // Check if it's the 10th question
+        if (currentQuestionIndex === 9) {
+            // Show summary instead of redirecting immediately
+            setInterviewResults(updatedResponses);
+            setShowSummary(true);
+        } else {
+            // Move to the next question and generate new question
+            setCurrentQuestionIndex(prev => prev + 1);
+            setAnswer('');
+            setCode('');
+            setFeedback('');
+            generateQuestion(); // Generate next question
+        }
     } catch (error) {
-      console.error('Error generating feedback:', error);
-      setFeedback('Error generating feedback. Please try again.');
+        console.error("Error submitting answer:", error);
     }
-  }, [currentQuestionIndex, currentQuestion, code, answer, allResponses, genAI, navigate, auth.currentUser, db]);
+  }, [currentQuestionIndex, allResponses, answer, currentQuestion]);
 
   const speakText = useCallback((text) => {
+    if (isMuted) {
+      console.log('Muted: Not speaking the question.'); // Debugging output
+      return; // Prevent speaking if muted
+    }
     if (speechSynthesis.speaking) {
-      speechSynthesis.cancel();
+      speechSynthesis.cancel(); // Stop any ongoing speech before speaking new text
     }
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.onend = () => setIsSpeaking(false);
     setIsSpeaking(true);
     speechSynthesis.speak(utterance);
+  }, [isMuted, speechSynthesis]);
+
+  const toggleMute = useCallback(() => {
+    if (speechSynthesis.speaking) {
+      speechSynthesis.cancel(); // Stop any ongoing speech when muting
+    }
+    setIsMuted(prev => !prev);
   }, [speechSynthesis]);
+
+  const startRecording = useCallback(() => {
+    if (speechSynthesis.speaking) {
+      speechSynthesis.cancel(); // Stop any ongoing speech when starting recording
+    }
+    if (!('SpeechRecognition' in window || 'webkitSpeechRecognition' in window)) {
+      setError('Speech recognition is not supported in this browser.');
+      return;
+    }
+
+    const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+    recognition.lang = 'en-US'; // Language
+    recognition.continuous = true;
+    recognition.interimResults = true;
+
+    recognition.onresult = (event) => {
+      const currentTranscript = Array.from(event.results)
+        .map(result => result[0].transcript)
+        .join('');
+
+      // Update the transcript only if it is different from the previous
+      if (currentTranscript.trim() !== answer.trim()) {
+        setAnswer(currentTranscript);
+      }
+    };
+
+    recognition.onerror = (event) => {
+      console.error('Speech recognition error:', event.error);
+      setError('Failed to recognize speech. Please try again.');
+    };
+
+    recognition.start();
+    setIsRecording(true);
+    recognitionRef.current = recognition;
+  }, [answer]);
+
+  const stopRecording = useCallback(() => {
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+      setIsRecording(false);
+    }
+  }, []);
 
   useEffect(() => {
     let interval;
@@ -124,82 +187,62 @@ function Interview({ genAI }) {
     }
   }, [currentQuestion, speakText]);
 
-  useEffect(() => {
-    const generateQuestion = async () => {
-      try {
-        const interviewData = JSON.parse(localStorage.getItem('interviewData'));
-        const model = genAI.getGenerativeModel({ model: "gemini-pro" });
-
-        const prompt = `Act as a technical interviewer. Generate a ${getQuestionType(currentQuestionIndex)} question for a ${interviewData.jobRole} position. 
-          Experience level: ${interviewData.experienceLevel}
-          Job Description: ${interviewData.jobDescription}
-          Keep the response clean and simple without any formatting or additional text.`;
-
-        const result = await model.generateContent(prompt);
-        const response = await result.response;
-        setCurrentQuestion(response.text().trim());
-        setTimer(300); // Reset timer for new question
-        setIsTimerRunning(true);
-      } catch (error) {
-        console.error('Error generating question:', error);
-        setCurrentQuestion('Error generating question. Please try again.');
+  const generateQuestion = async () => {
+    try {
+      const interviewData = JSON.parse(localStorage.getItem('interviewData'));
+      if (!interviewData) {
+        throw new Error("No interview data found");
       }
-    };
 
-    generateQuestion();
-  }, [currentQuestionIndex, genAI]);
+      const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+      
+      const prompt = `You are an expert technical interviewer. Generate a relevant ${getQuestionType(currentQuestionIndex)} question for a ${interviewData.jobRole} position.
+      Experience Level: ${interviewData.experienceLevel}
+      Job Description: ${interviewData.jobDescription}
+      
+      Rules for question generation:
+      1. For technical questions, focus on ${interviewData.jobRole}-specific technical concepts
+      2. For coding questions, make them relevant to real-world scenarios
+      3. Keep questions clear, concise, and specific
+      4. Avoid any additional formatting or explanatory text
+      5. Generate only the question, nothing else
+      
+      Generate the question now:`;
+
+      console.log('Generated Prompt:', prompt); // Log the prompt being sent
+
+      const result = await model.generateContent(prompt);
+      console.log('API Result:', result); // Log the result from the API
+
+      if (!result || !result.response) {
+        throw new Error("Failed to get response from Gemini API");
+      }
+
+      const response = result.response;
+      const questionText = response.text().trim();
+      
+      if (!questionText) {
+        throw new Error("Empty response from Gemini API");
+      }
+
+      setCurrentQuestion(questionText);
+      setTimer(300); // Reset timer for new question
+      setIsTimerRunning(true);
+    } catch (error) {
+      console.error('Error generating question:', error);
+      setCurrentQuestion('Error generating question. Please try again.');
+      // Retry after a short delay
+      setTimeout(() => {
+        generateQuestion();
+      }, 2000);
+    }
+  };
 
   const getQuestionType = (index) => {
     if (index === 0) return 'introduction';
     if (index >= 1 && index <= 3) return 'aptitude';
     if (index >= 4 && index <= 6) return 'technical';
     return 'coding';
-  };
-
-  const startRecording = async () => {
-    if (!openaiRef.current) {
-      setError('Voice recording is not available due to missing OpenAI API key.');
-      return;
-    }
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      mediaRecorderRef.current = new MediaRecorder(stream);
-      audioChunksRef.current = [];
-
-      mediaRecorderRef.current.ondataavailable = (event) => {
-        audioChunksRef.current.push(event.data);
-      };
-
-      mediaRecorderRef.current.onstop = async () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
-        try {
-          const transcription = await openaiRef.current.audio.transcriptions.create({
-            file: audioBlob,
-            model: 'whisper-1',
-          });
-          setAnswer(transcription.text);
-          setError('');
-        } catch (error) {
-          console.error('Error transcribing audio:', error);
-          setError('Failed to transcribe audio. Please try again or type your answer.');
-        }
-      };
-
-      mediaRecorderRef.current.start();
-      setIsRecording(true);
-      setError('');
-    } catch (error) {
-      console.error('Error starting recording:', error);
-      setError('Failed to start recording. Please check your microphone permissions.');
-    }
-  };
-
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
-    }
   };
 
   const formatTime = (seconds) => {
@@ -223,20 +266,14 @@ function Interview({ genAI }) {
     return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
   };
 
-  const endInterview = async () => {
-    if (window.confirm('Are you sure you want to end the interview? This will save your progress, generate a report, and use one interview credit.')) {
-      setIsInterviewActive(false);
-      
-      // Deduct one credit when interview is ended early
-      const userRef = doc(db, 'users', auth.currentUser.uid);
-      await updateDoc(userRef, {
-        credits: increment(-1)
-      });
-
-      const updatedResponses = [...allResponses];
-      localStorage.setItem('interviewResults', JSON.stringify(updatedResponses));
-      navigate('/report');
-    }
+  const stopInterview = async () => {
+    setIsInterviewActive(false);
+    // Save interview history to local storage or database
+    await addDoc(collection(db, 'interviews'), {
+      questions: allResponses,
+      timestamp: new Date(),
+    });
+    navigate('/report');
   };
 
   // Prevent navigation
@@ -252,25 +289,38 @@ function Interview({ genAI }) {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [isInterviewActive]);
 
+  const finishInterview = async () => {
+    // Save the interview results to Firestore if not already done
+    await addDoc(collection(db, 'interviews'), {
+        questions: interviewResults,
+        timestamp: new Date(),
+    });
+    // Redirect to the report page
+    navigate('/report', { state: { interviewResults } });
+  };
+
+  const handleSubmitSummary = () => {
+    // Navigate to Report.js and pass interviewResults
+    navigate('/report', { state: { interviewResults: interviewResults } });
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
       <Header disableNavigation={isInterviewActive} />
       <div className="container mx-auto px-4 py-8">
         <div className="flex justify-between items-center mb-6">
           <div className="flex items-center space-x-4">
-            <div className="bg-white px-4 py-2 rounded-lg shadow-md">
-              <div className="flex items-center space-x-2">
-                <ClockIcon className="h-5 w-5 text-gray-600" />
-                <span className="font-mono text-lg">{formatElapsedTime(elapsedTime)}</span>
-              </div>
+            <div className="flex items-center bg-gray-100 px-3 py-1 rounded-full">
+              <ClockIcon className="h-5 w-5 mr-2 text-gray-600" />
+              <span className="font-medium text-gray-700">{formatElapsedTime(elapsedTime)}</span>
             </div>
           </div>
           <button
-            onClick={endInterview}
+            onClick={stopInterview}
             className="btn btn-danger flex items-center space-x-2"
           >
             <XCircleIcon className="h-5 w-5" />
-            <span>End Interview</span>
+            <span>Stop Interview</span>
           </button>
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -288,12 +338,11 @@ function Interview({ genAI }) {
                 </div>
                 <div className="flex items-center space-x-4">
                   <button
-                    onClick={() => speakText(currentQuestion)}
-                    disabled={isSpeaking}
+                    onClick={toggleMute}
                     className="text-gray-600 hover:text-gray-900 transition-colors p-2 rounded-full hover:bg-gray-100"
-                    title={isSpeaking ? "Speaking..." : "Read Question"}
+                    title={isMuted ? "Unmute" : "Mute"}
                   >
-                    <SpeakerWaveIcon className="h-6 w-6" />
+                    {isMuted ? <SpeakerWaveIcon className="h-6 w-6 text-gray-400" /> : <SpeakerWaveIcon className="h-6 w-6" />}
                   </button>
                   <div className="flex items-center bg-gray-100 px-3 py-1 rounded-full">
                     <ClockIcon className="h-5 w-5 mr-2 text-gray-600" />
@@ -338,9 +387,8 @@ function Interview({ genAI }) {
                   <div className="flex flex-wrap gap-4">
                     <button
                       onClick={startRecording}
-                      disabled={isRecording || !openaiRef.current}
+                      disabled={isRecording}
                       className={`btn ${isRecording ? 'btn-danger' : 'btn-primary'} flex items-center`}
-                      title={!openaiRef.current ? 'Voice recording is not available' : undefined}
                     >
                       <MicrophoneIcon className="h-5 w-5 mr-2" />
                       {isRecording ? 'Recording...' : 'Start Recording'}
@@ -359,11 +407,21 @@ function Interview({ genAI }) {
 
               <button
                 onClick={handleAnswerSubmit}
+                disabled={isRecording}
                 className="btn btn-primary w-full mt-6 flex items-center justify-center"
               >
                 Submit Answer
               </button>
 
+              {/* Show Finish Interview button after the 10th question */}
+              {currentQuestionIndex === 9 && showSummary && (
+                <button
+                  onClick={handleSubmitSummary}
+                  className="btn btn-success w-full mt-6 flex items-center justify-center"
+                >
+                  Submit Summary
+                </button>
+              )}
             </div>
           </div>
 
@@ -382,9 +440,22 @@ function Interview({ genAI }) {
             </div>
           </div>
         </div>
+        {showSummary && (
+          <div className="summary">
+            <h2>Interview Summary</h2>
+            {interviewResults.map((result, index) => (
+              <div key={index}>
+                <h3>Question: {result.question}</h3>
+                <p>Your Answer: {result.answer}</p>
+                <p>Feedback: {result.feedback}</p>
+              </div>
+            ))}
+            <button onClick={() => navigate('/report', { state: { interviewResults } })}>View Full Report</button>
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-export default Interview; 
+export default Interview;
