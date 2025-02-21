@@ -127,7 +127,6 @@ function Interview({ genAI }) {
     setIsMuted(prev => !prev);
   }, [speechSynthesis]);
 
-<<<<<<< HEAD
   const startRecording = useCallback(async () => {
     if (speechSynthesis.speaking) {
       speechSynthesis.cancel(); // Stop any ongoing speech when starting recording
@@ -148,18 +147,6 @@ function Interview({ genAI }) {
       return;
     }
     const recognition = new SpeechRecognition();
-=======
-  const startRecording = useCallback(() => {
-    if (speechSynthesis.speaking) {
-      speechSynthesis.cancel(); // Stop any ongoing speech when starting recording
-    }
-    if (!('SpeechRecognition' in window || 'webkitSpeechRecognition' in window)) {
-      setError('Speech recognition is not supported in this browser.');
-      return;
-    }
-
-    const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
->>>>>>> 823f4530310154a5166386f91a69e854893b7924
     recognition.lang = 'en-US'; // Language
     recognition.continuous = true;
     recognition.interimResults = true;
@@ -290,48 +277,6 @@ function Interview({ genAI }) {
   };
 
   const stopInterview = async () => {
-<<<<<<< HEAD
-    // Stop any ongoing speech
-    if (speechSynthesis.speaking) {
-      speechSynthesis.cancel();
-    }
-
-    // Stop any ongoing recording
-    if (recognitionRef.current) {
-      recognitionRef.current.stop();
-    }
-
-    // Stop the timer
-    setIsTimerRunning(false);
-
-    // Stop the interview active state
-    setIsInterviewActive(false);
-
-    try {
-      // Save partial interview data to Firestore
-      if (allResponses.length > 0) {
-        await addDoc(collection(db, 'interviews'), {
-          userId: auth.currentUser.uid,
-          questions: allResponses,
-          timestamp: new Date(),
-          jobRole: JSON.parse(localStorage.getItem('interviewData'))?.jobRole || 'Unknown',
-          experienceLevel: JSON.parse(localStorage.getItem('interviewData'))?.experienceLevel || 'Unknown',
-          status: 'incomplete',
-          overallFeedback: 'Interview stopped early by user'
-        });
-      }
-
-      // Clear interview data from localStorage
-      localStorage.removeItem('interviewData');
-      
-      // Navigate to dashboard
-      navigate('/dashboard');
-    } catch (error) {
-      console.error('Error saving interview data:', error);
-      // Navigate to dashboard even if save fails
-      navigate('/dashboard');
-    }
-=======
     setIsInterviewActive(false);
     // Save interview history to local storage or database
     await addDoc(collection(db, 'interviews'), {
@@ -339,7 +284,6 @@ function Interview({ genAI }) {
       timestamp: new Date(),
     });
     navigate('/report');
->>>>>>> 823f4530310154a5166386f91a69e854893b7924
   };
 
   // Prevent navigation
