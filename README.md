@@ -1,3 +1,21 @@
+# MockDiddy
+
+## Description
+A brief overview of what your project does.
+
+## Installation Instructions
+1. Clone the repository: `git clone <repository-url>`
+2. Navigate to the project directory: `cd MockDiddy`
+3. Install dependencies: `npm install`
+
+## Usage
+Instructions on how to use the project.
+
+## Contributing
+Guidelines for contributing to the project.
+
+## License
+This project is licensed under the MIT License.
 # AI-Powered Mock Interview Application
 
 This application helps students prepare for technical interviews using AI-powered question generation and feedback. It uses the Google Gemini API for natural language processing and Firebase for authentication and storage.
@@ -65,3 +83,4 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
+

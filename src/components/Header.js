@@ -2,10 +2,12 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getAuth, signOut } from 'firebase/auth';
 import { UserIcon, ArrowRightOnRectangleIcon, ClockIcon } from '@heroicons/react/24/solid';
+import PricingModal from './PricingModal';
 
 function Header({ disableNavigation }) {
   const navigate = useNavigate();
   const [showDropdown, setShowDropdown] = useState(false);
+  const [isModalOpen, setIsModalOpen] = useState(false);
   const auth = getAuth();
 
   const handleLogout = async () => {
@@ -36,6 +38,18 @@ function Header({ disableNavigation }) {
       return;
     }
     navigate('/dashboard');
+  };
+
+  const handleOpenModal = () => {
+    setIsModalOpen(true);
+  };
+
+  const handleCloseModal = () => {
+    setIsModalOpen(false);
+  };
+
+  const handleSelectPlan = () => {
+    // Add implementation for handleSelectPlan
   };
 
   return (
@@ -96,12 +110,27 @@ function Header({ disableNavigation }) {
                       <span className="text-xs text-red-500">End your session</span>
                     </div>
                   </button>
+                  <button
+                    onClick={handleOpenModal}
+                    className="flex items-center w-full px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 transition-colors duration-150"
+                  >
+                    <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center mr-3">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18M7 8v12a2 2 0 002 2h3a2 2 0 002-2V8a2 2 0 00-2-2h-3a2 2 0 00-2 2v12a2 2 0 002 2h3a2 2 0 002-2V8a2 2 0 00-2-2H7zM7 8v12" />
+                      </svg>
+                    </div>
+                    <div className="flex flex-col items-start">
+                      <span className="font-medium">Pricing</span>
+                      <span className="text-xs text-gray-500">View our pricing plans</span>
+                    </div>
+                  </button>
                 </div>
               </div>
             )}
           </div>
         </div>
       </div>
+      <PricingModal isOpen={isModalOpen} onClose={handleCloseModal} onSelectPlan={handleSelectPlan} />
     </header>
   );
 }

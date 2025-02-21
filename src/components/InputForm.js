@@ -2,6 +2,9 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeftIcon } from '@heroicons/react/24/solid';
 import Header from './Header';
+import { parseResume } from '../utils/resumeParser';
+import { readPdf } from '../utils/pdfParser';
+import { toast } from 'react-toastify'; // For notifications
 
 function InputForm() {
   const navigate = useNavigate();
@@ -9,30 +12,75 @@ function InputForm() {
     jobRole: '',
     jobDescription: '',
     experienceLevel: '',
-    resume: null
+    resume: null,
+    resumeText: '',
   });
+  const [isLoading, setIsLoading] = useState(false);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }));
+    setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
-  const handleFileChange = (e) => {
+  const handleFileChange = async (e) => {
     const file = e.target.files[0];
-    setFormData(prev => ({
-      ...prev,
-      resume: file
-    }));
+    if (!file) return;
+
+    // Validate file type and size
+    if (!['application/pdf', 'text/plain'].includes(file.type)) {
+      toast.error('Unsupported file type. Please upload a PDF or TXT file.');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) { // 5MB limit
+      toast.error('File size too large. Please upload a file smaller than 5MB.');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      let extractedText = '';
+      if (file.type === 'application/pdf') {
+        extractedText = await readPdf(file);
+      } else {
+        extractedText = await parseResume(file);
+      }
+      setFormData((prev) => ({ ...prev, resume: file, resumeText: extractedText }));
+      toast.success('Resume uploaded successfully!');
+    } catch (error) {
+      console.error('Error parsing resume:', error);
+      toast.error('Failed to parse resume. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    // Store form data in localStorage for use in Interview component
-    localStorage.setItem('interviewData', JSON.stringify(formData));
-    navigate('/interview');
+    
+    // Validate form data
+    if (!formData.jobRole || !formData.jobDescription || !formData.experienceLevel) {
+      toast.error('Please fill in all required fields');
+      return;
+    }
+
+    try {
+      // Store the data in localStorage
+      const dataToStore = {
+        jobRole: formData.jobRole.trim(),
+        jobDescription: formData.jobDescription.trim(),
+        experienceLevel: formData.experienceLevel,
+        resumeText: formData.resumeText || ''
+      };
+
+      console.log('Storing interview data:', dataToStore);
+      localStorage.setItem('interviewData', JSON.stringify(dataToStore));
+      
+      toast.success('Interview data saved successfully!');
+      navigate('/interview');
+    } catch (error) {
+      console.error('Error saving interview data:', error);
+      toast.error('Failed to save interview data');
+    }
   };
 
   const handleBack = () => {
@@ -50,40 +98,39 @@ function InputForm() {
               Interview Details
             </h2>
           </div>
-          
+
           <form onSubmit={handleSubmit} className="space-y-6">
+            {/* Job Role */}
             <div>
-              <label className="block text-sm font-medium text-gray-700">
-                Job Role
-              </label>
+              <label className="block text-sm font-medium text-gray-700">Job Role</label>
               <input
                 type="text"
                 name="jobRole"
                 value={formData.jobRole}
                 onChange={handleInputChange}
                 className="input mt-1"
+                placeholder="e.g., Software Engineer"
                 required
               />
             </div>
 
+            {/* Job Description */}
             <div>
-              <label className="block text-sm font-medium text-gray-700">
-                Job Description
-              </label>
+              <label className="block text-sm font-medium text-gray-700">Job Description</label>
               <textarea
                 name="jobDescription"
                 value={formData.jobDescription}
                 onChange={handleInputChange}
                 rows="4"
                 className="input mt-1"
+                placeholder="Describe the job role..."
                 required
               />
             </div>
 
+            {/* Experience Level */}
             <div>
-              <label className="block text-sm font-medium text-gray-700">
-                Experience Level
-              </label>
+              <label className="block text-sm font-medium text-gray-700">Experience Level</label>
               <select
                 name="experienceLevel"
                 value={formData.experienceLevel}
@@ -98,24 +145,21 @@ function InputForm() {
               </select>
             </div>
 
+            {/* Resume Upload */}
             <div>
-              <label className="block text-sm font-medium text-gray-700">
-                Resume (PDF/TXT)
-              </label>
+              <label className="block text-sm font-medium text-gray-700">Resume (PDF/TXT)</label>
               <input
                 type="file"
                 accept=".pdf,.txt"
                 onChange={handleFileChange}
-                className="mt-1 block w-full text-sm text-gray-500
-                  file:mr-4 file:py-2 file:px-4
-                  file:rounded-full file:border-0
-                  file:text-sm file:font-semibold
-                  file:bg-purple-50 file:text-purple-700
-                  hover:file:bg-purple-100"
+                className="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100"
+                disabled={isLoading}
                 required
               />
+              {isLoading && <p className="text-sm text-gray-500 mt-2">Parsing resume...</p>}
             </div>
 
+            {/* Buttons */}
             <div className="flex space-x-4">
               <button
                 type="button"
@@ -125,10 +169,7 @@ function InputForm() {
                 <ArrowLeftIcon className="h-5 w-5" />
                 <span>Back</span>
               </button>
-              <button
-                type="submit"
-                className="flex-1 btn btn-primary"
-              >
+              <button type="submit" className="flex-1 btn btn-primary" disabled={isLoading}>
                 Start Interview
               </button>
             </div>
@@ -139,4 +180,4 @@ function InputForm() {
   );
 }
 
-export default InputForm; 
+export default InputForm;
