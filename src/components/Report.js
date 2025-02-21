@@ -693,4 +693,8 @@ Be a ruthless interviewer. Brutal evaluation in JSON. No explanation, JUST JSON:
   );
 }
 
+<<<<<<< HEAD
 export default Report;
+=======
+export default Report;
+>>>>>>> 823f4530310154a5166386f91a69e854893b7924

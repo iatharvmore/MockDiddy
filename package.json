@@ -54,10 +54,7 @@
     "eject": "react-scripts eject"
   },
   "eslintConfig": {
-    "extends": [
-      "react-app",
-      "react-app/jest"
-    ]
+    "extends": []
   },
   "browserslist": {
     "production": [
@@ -74,6 +71,10 @@
   "devDependencies": {
     "@babel/plugin-proposal-private-property-in-object": "^7.21.11",
     "customize-cra": "^1.0.0",
+<<<<<<< HEAD
     "react-app-rewired": "^2.2.1"
+=======
+    "react-app-rewired": "2.2.1"
+>>>>>>> 823f4530310154a5166386f91a69e854893b7924
   }
 }

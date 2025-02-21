@@ -180,4 +180,8 @@ function InputForm() {
   );
 }
 
+<<<<<<< HEAD
 export default InputForm;
+=======
+export default InputForm;
+>>>>>>> 823f4530310154a5166386f91a69e854893b7924

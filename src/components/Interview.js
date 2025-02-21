@@ -127,6 +127,7 @@ function Interview({ genAI }) {
     setIsMuted(prev => !prev);
   }, [speechSynthesis]);
 
+<<<<<<< HEAD
   const startRecording = useCallback(async () => {
     if (speechSynthesis.speaking) {
       speechSynthesis.cancel(); // Stop any ongoing speech when starting recording
@@ -147,6 +148,18 @@ function Interview({ genAI }) {
       return;
     }
     const recognition = new SpeechRecognition();
+=======
+  const startRecording = useCallback(() => {
+    if (speechSynthesis.speaking) {
+      speechSynthesis.cancel(); // Stop any ongoing speech when starting recording
+    }
+    if (!('SpeechRecognition' in window || 'webkitSpeechRecognition' in window)) {
+      setError('Speech recognition is not supported in this browser.');
+      return;
+    }
+
+    const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+>>>>>>> 823f4530310154a5166386f91a69e854893b7924
     recognition.lang = 'en-US'; // Language
     recognition.continuous = true;
     recognition.interimResults = true;
@@ -277,6 +290,7 @@ function Interview({ genAI }) {
   };
 
   const stopInterview = async () => {
+<<<<<<< HEAD
     // Stop any ongoing speech
     if (speechSynthesis.speaking) {
       speechSynthesis.cancel();
@@ -317,6 +331,15 @@ function Interview({ genAI }) {
       // Navigate to dashboard even if save fails
       navigate('/dashboard');
     }
+=======
+    setIsInterviewActive(false);
+    // Save interview history to local storage or database
+    await addDoc(collection(db, 'interviews'), {
+      questions: allResponses,
+      timestamp: new Date(),
+    });
+    navigate('/report');
+>>>>>>> 823f4530310154a5166386f91a69e854893b7924
   };
 
   // Prevent navigation
